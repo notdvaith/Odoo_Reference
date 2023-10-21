@@ -1,0 +1,163 @@
+/* @odoo-module */
+
+import { registry } from "@web/core/registry"
+import { KpiCard } from "./kpi_card/kpi_card"
+import { ChartRenderer } from "./chart_renderer/chart_renderer"
+import { loadJS } from "@web/core/assets"
+import { useService } from "@web/core/utils/hooks"
+import { getColor } from "@web/views/graph/colors"
+const { Component, onWillStart, useRef, onMounted, useState } = owl
+
+export class SalesDashboard extends Component {
+    // Top products
+    async getTopProducts() {
+        let domain = [["state", "in", ["sale", "done"]]]
+        if (this.state.period > 0) {
+            domain.push(["date", ">", this.state.current_date])
+        }
+        const data = await this.orm.readGroup("sale.report", domain, ["product_id", "price_total"], ["product_id"], {limit: 5, orderby: "price_total desc"})
+        this.state.topProducts = {
+            data: {
+                labels: data.map((d) => d.product_id[1]),
+                datasets: [{
+                    backgroundColor: data.map((_, index) => getColor(index)),
+                    data: data.map((d) => d.price_total),
+                }]
+            },
+        }
+    }
+    // Monthly sales
+    getMonthlySales() {
+        this.state.monthlySales = {}
+    }
+    setup() {
+        this.orm = useService("orm")
+        this.state = useState({
+            period: 90,
+            quotations: {
+                value: 10,
+                percentage: 25,
+            },
+        })
+        onWillStart(async ()=> {
+            this.getDates()
+            await this.getQuotations()
+            await this.getOrders()
+            await this.getTopProducts()
+        })
+    }
+
+    async getQuotations(){
+        let domain = [["state", "in", ["sent", "draft"]]]
+        if (this.state.period > 0) {
+            domain.push(["date_order", ">", this.state.current_date])
+        }
+        const data = await this.orm.searchCount("sale.order", domain)
+        this.state.quotations.value = data
+
+        let prev_domain = [["state", "in", ["sent", "draft"]]]
+        if (this.state.period > 0) {
+            domain.push(["date_order", ">", this.state.previous_date], ["date_order", "<", this.state.current_date_date])
+        }
+        const prev_data = await this.orm.searchCount("sale.order", prev_domain)
+        const percentage = ((data - prev_data)/ prev_data) * 100
+        this.state.quotations.percentage = percentage.toFixed(0)
+    }
+
+    async getOrders(){
+        let domain = [["state", "in", ["sale", "done"]]]
+        if (this.state.period > 0) {
+            domain.push(["date_order", ">", this.state.current_date])
+        }
+        const data = await this.orm.searchCount("sale.order", domain)
+
+        let prev_domain = [["state", "in", ["sent", "draft"]]]
+        if (this.state.period > 0) {
+            prev_domain.push(["date_order", ">", this.state.previous_date])
+            prev_domain.push(["date_order", "<", this.state.current_date])
+        }
+        const prev_data = await this.orm.searchCount("sale.order", prev_domain)
+        const percentage = ((data - prev_data)/ prev_data) * 100
+
+        const current_revenue = await this.orm.readGroup("sale.order", domain, ["amount_total:sum"], [])
+        const prev_revenue = await this.orm.readGroup("sale.order", prev_domain, ["amount_total:sum"], [])
+        const revenue_percentage = ((current_revenue[0].amount_total - prev_revenue[0].amount_total) / prev_revenue[0].amount_total) * 100
+
+        this.state.orders = {
+            value: data,
+            percentage: percentage.toFixed(0),
+            revenue: `$${(current_revenue[0].amount_total/1000).toFixed(2)}K`,
+            revenue_percentage: revenue_percentage.toFixed(0),
+        }
+    }
+
+    async onChangePeriod() {
+        this.getDates()
+        await this.getQuotations()
+        await this.getOrders()
+        await this.getTopProducts()
+    }
+
+    getDates(){
+        this.state.current_date = moment().subtract(this.state.period, 'days').format('DD/MM/YYYY')
+        this.state.previous_date = moment().subtract(this.state.period * 2, 'days').format('DD/MM/YYYY')
+    }
+
+    async viewQuotations(){
+        let domain = [["state", "in", ["sent", "draft"]]]
+        if (this.state.period > 0) {
+            domain.push(["date_order", ">", this.state.current_date])
+        }
+        var list_view = await this.orm.searchRead("ir.model.data", [["name", "=", "view_quotation_tree_with_onboarding"]], ["res_id"])
+        this.env.services.action.doAction({
+            type: "ir.actions.act_window",
+            name: "Quotations",
+            res_model: "sale.order",
+            domain: domain,
+            views: [
+                [list_view.length > 0 ? list_view[0].res_id : false, "list"],
+                [false, "form"],
+            ],
+        })
+    }
+
+    viewOrders(){
+        let domain = [["state", "in", ["sale", "done"]]]
+        if (this.state.period > 0) {
+            domain.push(["date_order", ">", this.state.current_date])
+        }
+        this.env.services.action.doAction({
+            type: "ir.actions.act_window",
+            name: "Quotations",
+            res_model: "sale.order",
+            domain: domain,
+            context: {group_by: ['date_order']},
+            views: [
+                [false, "list"],
+                [false, "form"],
+            ],
+        })
+    }
+
+    viewRevenues(){
+        let domain = [["state", "in", ["sale", "done"]]]
+        if (this.state.period > 0) {
+            domain.push(["date_order", ">", this.state.current_date])
+        }
+        this.env.services.action.doAction({
+            type: "ir.actions.act_window",
+            name: "Quotations",
+            res_model: "sale.order",
+            domain: domain,
+            context: {group_by: ['date_order']},
+            views: [
+                [false, "pivot"],
+            ],
+        })
+    }
+
+}
+
+SalesDashboard.template = "sales_dashboard.SalesDashboard"
+SalesDashboard.components = { KpiCard, ChartRenderer }
+registry.category("actions").add("sales_dashboard", SalesDashboard)

@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!--To add the product owner name-->
+<templates xml:space="preserve">
+    <!--To add the product owner name in info-->
+    <t t-name="ProductInfoPopup" t-inherit="point_of_sale.ProductInfoPopup" t-inherit-mode="extension" owl="1">
+        <xpath expr="//div[hasclass('section-inventory-body')]/table[1]" position="inside"><br/>
+            <t t-if="props.product.product_owner_id">
+            <span>Owner: <t t-esc="props.product.product_owner_id[1]"/></span>
+            </t>
+        </xpath>
+    </t>
+    <!--To add the product owner name in order line-->
+    <t t-name="Orderline" t-inherit="point_of_sale.Orderline" t-inherit-mode="extension" owl="1">
+        <xpath expr="//span[hasclass('product-name')]" position="after">
+            <br/>
+            <t t-if="props.line.get_product().product_owner_id">
+            Owner: <span t-esc="props.line.get_product().product_owner_id[1]"/>
+            </t>
+        </xpath>
+    </t>
+    <!--To add the product owner name in receipt-->
+    <t t-name="OrderReceipt" t-inherit="point_of_sale.OrderLinesReceipt" t-inherit-mode="extension" owl="1">
+        <xpath expr="//t[@t-foreach='receipt.orderlines']" position="inside">
+            <div t-if="line.product_owner_id" class="pos-receipt-left-padding">
+                Owner :<span t-esc="line.product_owner_id[1]"/>
+            </div>
+        </xpath>
+    </t>
+</templates>
